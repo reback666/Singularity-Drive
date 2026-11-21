@@ -147,7 +147,7 @@ function smoothSides(geo){
   }
   nor.needsUpdate=true;
 }
-function plateGeo(n,mask,swept){
+function gearProfile(n,mask,swept){
   var r=rOf(n), Ro=r+M, Rr=rootR(n), rb=r*COSPA, p=TAU2/n, ax=axR(n), i, j, c, q, a;
   var st=n<=60?6:(n<=150?4:(n<=300?3:2)), s0=Math.max(rb,Rr), rad=[Rr];
   if(s0>Rr+1e-6) rad.push(s0);
@@ -190,12 +190,15 @@ function plateGeo(n,mask,swept){
       ah=Math.PI*hr*hr; area-=ah; J-=ah*(hr*hr/2+rc*rc);
     }
   }
-  var bev=n<=150, bt=bev?0.02:0;
-  var geo=new THREE.ExtrudeGeometry(s,{depth:TH-2*bt,bevelEnabled:bev,bevelThickness:0.02,bevelSize:0.014,bevelOffset:0,bevelSegments:1,curveSegments:swept?16:8});
+  return {shape:s,area:Math.max(area,1e-6),J:Math.max(J,1e-9)};
+}
+function plateGeo(n,mask,swept){
+  var profile=gearProfile(n,mask,swept), bev=n<=150, bt=bev?0.02:0;
+  var geo=new THREE.ExtrudeGeometry(profile.shape,{depth:TH-2*bt,bevelEnabled:bev,bevelThickness:0.02,bevelSize:0.014,bevelOffset:0,bevelSegments:1,curveSegments:swept?16:8});
   if(bev) geo.translate(0,0,bt);
   smoothSides(geo);
   geo.rotateX(-Math.PI/2);
-  geo.userData={area:Math.max(area,1e-6),J:Math.max(J,1e-9)};
+  geo.userData={area:profile.area,J:profile.J};
   return geo;
 }
 var geoCache=new Map();
@@ -1043,6 +1046,7 @@ function updateLight(){
     L.distance=careerMode?Math.max(14,(hg.r+M)*6,pos.y*1.9):(hg.r+8)*12;
     L.intensity=Math.min(60,hb*gearGlowGain(hg.T)*.45);
   }
+  if(careerMode) frags.forEach(function(f){tmax=Math.max(tmax,f.T,f.hub?f.hub.T:0)});
   bloomOn=!!composer&&tmax>=1400;
   if(bloom){
     var ex=Math.min(2,Math.max(0,Math.log10(tmax/25000)));
@@ -1107,7 +1111,7 @@ function updateSparks(dt,dist){
 function top4(minT){
   var hs=[], i, j, mn, t; top4.max=0;
   for(i=0;i<G.length;i++){
-    t=G[i].T; if(t<=minT) continue;
+    t=G[i].T; if(t<=minT||!G[i].grp3.visible) continue;
     if(t>top4.max) top4.max=t;
     if(hs.length<4) hs.push(G[i]);
     else{ mn=0; for(j=1;j<4;j++) if(hs[j].T<hs[mn].T) mn=j; if(t>hs[mn].T) hs[mn]=G[i]; }
@@ -1171,28 +1175,38 @@ function sparkBurst(px,py,pz,cnt,spd,T){
   }
   spark.pts.visible=true;
 }
+function disposeFrag(f){
+  scene.remove(f.m); f.mat.dispose(); if(f.hub) f.hub.mat.dispose(); if(f.own) f.m.geometry.dispose();
+}
 function addFrag(geo,g,px,py,pz,vx,vy,vz,sx,sy,sz,rot){
   var mat=g.mat.clone(), m=new THREE.Mesh(geo,mat);
   m.position.set(px,py,pz); m.scale.set(sx,sy,sz); m.rotation.y=rot||0; m.castShadow=false; scene.add(m);
   var f={m:m,mat:mat,v:new THREE.Vector3(vx,vy,vz),w:new THREE.Vector3((Math.random()-0.5)*30,(Math.random()-0.5)*30,(Math.random()-0.5)*30),T0:g.T,T:g.T,age:0,rest:false,base:g.base.clone(),h:Math.max(0.1,sy*0.5)};
   frags.push(f);
-  while(frags.length>70){var o=frags.shift(); scene.remove(o.m); o.mat.dispose(); if(o.own) o.m.geometry.dispose()}
+  while(frags.length>70) disposeFrag(frags.shift());
   return f;
 }
 function updateFrags(dt){
   var i,f,sp;
   for(i=frags.length-1;i>=0;i--){
     f=frags[i]; f.age+=dt;
-    f.T=T0+(f.T0-T0)*Math.exp(-f.age/18);
-    if(!f.rest){
-      f.v.y-=980*dt; f.m.position.addScaledVector(f.v,dt);
-      f.m.rotation.x+=f.w.x*dt; f.m.rotation.y+=f.w.y*dt; f.m.rotation.z+=f.w.z*dt;
+    f.T=T0+(f.T0-T0)*Math.exp(-f.age/(f.coolTime||18));
+    var step=f.own&&careerMode?Math.max(0,Math.min(dt,f.age-f.release))*(.38+.62*sstep(.45,1,f.age)):dt;
+    if(!f.rest&&step>0){
+      f.v.y-=980*step; f.m.position.addScaledVector(f.v,step);
+      f.m.rotation.x+=f.w.x*step; f.m.rotation.y+=f.w.y*step; f.m.rotation.z+=f.w.z*step;
       if(f.m.position.y<f.h){
         f.m.position.y=f.h; f.v.y*=-0.28; f.v.x*=0.7; f.v.z*=0.7; f.w.multiplyScalar(0.6);
         sp=Math.abs(f.v.y)+Math.abs(f.v.x)+Math.abs(f.v.z); if(sp<25){f.rest=true; f.v.set(0,0,0)}
       }
     }
-    if(f.T>650||f.hot){
+    if(careerMode){
+      glowAt(f.T,f.mat.emissive);
+      if(f.hub){
+        f.hub.T=T0+(f.hub.T0-T0)*Math.exp(-f.age/(f.coolTime*1.35));
+        glowAt(f.hub.T,f.hub.mat.emissive);
+      }
+    }else if(f.T>650||f.hot){
       f.hot=f.T>650;
       if(f.hot){ var b=bb(f.T,hc); f.mat.color.copy(f.base).multiplyScalar(1-0.85*b); f.mat.emissive.copy(hc).multiplyScalar(b*gainOf(f.T)); }
       else { f.mat.color.copy(f.base).multiplyScalar(0.55); f.mat.emissive.setRGB(0,0,0) }
@@ -1220,7 +1234,7 @@ function updatePools(dt){
   }
 }
 function clearDebris(){
-  frags.forEach(function(o){scene.remove(o.m); o.mat.dispose(); if(o.own) o.m.geometry.dispose()}); frags=[];
+  frags.forEach(disposeFrag); frags=[];
   pools.forEach(function(o){scene.remove(o.m); o.m.geometry.dispose(); o.mat.dispose()}); pools=[];
 }
 function breakTooth(g){
@@ -1238,38 +1252,146 @@ function breakTooth(g){
   if(g.broken.size>=Math.max(2,Math.ceil(n*0.25))){ g.free=true; needRebuild=true; toast(n+' 齿齿轮的齿大面积崩掉，已无法啮合传动',true) }
   else toast(n+' 齿齿轮断了一颗齿（共 '+g.broken.size+' 颗）：'+(g.sigT>g.mt.uts*fT(g.mt,g.T)?'齿根应力超过抗拉强度':'疲劳累积'),true);
 }
+function profileTriangles(shape,scale){
+  var points=shape.extractPoints(8), faces=THREE.ShapeUtils.triangulateShape(points.shape,points.holes);
+  var vertices=points.shape.concat(...points.holes);
+  vertices.forEach(function(p){p.multiplyScalar(scale)});
+  return faces.map(function(face){return face.map(function(i){return vertices[i]})});
+}
+function clipShard(poly,plane){
+  var out=[], a=poly[poly.length-1], da=a.x*plane.x+a.y*plane.y-plane.cut;
+  for(var i=0;i<poly.length;i++){
+    var b=poly[i], db=b.x*plane.x+b.y*plane.y-plane.cut;
+    if((da<0&&db>0)||(da>0&&db<0)) out.push(a.clone().lerp(b,da/(da-db)));
+    if(db<=0) out.push(b);
+    a=b; da=db;
+  }
+  return out;
+}
+function appendShardSolid(out,cuts,triangles,seed,planes,height){
+  var edges=new Map();
+  function key(p){return Math.round(p.x*1e7)+','+Math.round(p.y*1e7)}
+  function vertex(p,h,cut=0){out.push(p.x-seed.x,h,seed.y-p.y); cuts.push(cut)}
+  triangles.forEach(function(face){
+    var poly=face;
+    for(var j=0;j<planes.length&&poly.length>=3;j++) poly=clipShard(poly,planes[j]);
+    if(poly.length<3) return;
+    var a=poly[0], b, c, area=0;
+    for(var i=1;i+1<poly.length;i++){
+      b=poly[i]; c=poly[i+1]; area+=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+    }
+    if(Math.abs(area)<1e-10) return;
+    if(area<0) poly.reverse();
+    a=poly[0];
+    for(i=1;i+1<poly.length;i++){
+      b=poly[i]; c=poly[i+1];
+      vertex(a,height); vertex(b,height); vertex(c,height);
+      vertex(a,0); vertex(c,0); vertex(b,0);
+    }
+    // Shared triangle edges cancel, leaving the original perimeter, holes and new crack faces.
+    for(i=0;i<poly.length;i++){
+      a=poly[i]; b=poly[(i+1)%poly.length];
+      var ka=key(a), kb=key(b);
+      if(ka===kb) continue;
+      if(!edges.delete(kb+'|'+ka)) edges.set(ka+'|'+kb,[a,b]);
+    }
+  });
+  edges.forEach(function(edge){
+    var a=edge[0], b=edge[1];
+    var cut=planes.some(function(p){
+      return Math.abs(a.x*p.x+a.y*p.y-p.cut)<1e-7&&Math.abs(b.x*p.x+b.y*p.y-p.cut)<1e-7;
+    })?1:0;
+    vertex(a,0,cut); vertex(b,0,cut); vertex(b,height,cut);
+    vertex(a,0,cut); vertex(b,height,cut); vertex(a,height,cut);
+  });
+}
+function shadeShard(shader){
+  shader.vertexShader='attribute float shardCut; varying float fractureFace;\n'+shader.vertexShader.replace('#include <begin_vertex>',
+    '#include <begin_vertex>\nfractureFace=shardCut;');
+  shader.fragmentShader='varying float fractureFace;\n'+shader.fragmentShader.replace('#include <emissivemap_fragment>',
+    '#include <emissivemap_fragment>\ntotalEmissiveRadiance*=mix(1.0,.28,fractureFace);');
+}
+function fractureSeverity(g){
+  var speed=Math.min(1,Math.log1p(tipSpeed(g)/85)/Math.log1p(C_LIGHT/85));
+  var heat=Math.min(1,Math.log1p(Math.max(0,Math.max(g.T,g.Tdisc,g.Thub)-T0)/650)/Math.log1p(22000/650));
+  return .62*speed+.38*heat;
+}
+function shatterCareerGear(g){
+  var severity=fractureSeverity(g), count=6+Math.round(48*severity), phase=Math.random()*TAU2;
+  var r=(g.r+M)*g.body.scale.x, rotation=g.grp3.rotation.y, pos=g.grp3.position;
+  var sin=Math.sin(rotation), cos=Math.cos(rotation), direction=Math.sign(g.omega)||1;
+  var disc=profileTriangles(gearProfile(g.n,g.broken,false).shape,g.body.scale.x);
+  var hubShape=new THREE.Shape(), hubRadius=g.hub.scale.x;
+  for(var i=0;i<32;i++){
+    var angle=i*TAU2/32, x=hubRadius*Math.cos(angle), y=hubRadius*Math.sin(angle);
+    if(i===0) hubShape.moveTo(x,y); else hubShape.lineTo(x,y);
+  }
+  hubShape.closePath();
+  var hub=profileTriangles(hubShape,1), seeds=[];
+  for(i=0;i<count;i++){
+    var a=phase+i*Math.PI*(3-Math.sqrt(5))+(Math.random()-.5)*.35;
+    var distance=r*.94*Math.sqrt((i+.12)/count);
+    seeds.push(new THREE.Vector2(distance*Math.cos(a),distance*Math.sin(a)));
+  }
+  seeds.forEach(function(seed){
+    var planes=seeds.filter(function(p){return p!==seed}).map(function(p){
+      var x=p.x-seed.x, y=p.y-seed.y;
+      return {x:x,y:y,cut:(p.lengthSq()-seed.lengthSq())*.5,distance:x*x+y*y};
+    }).sort(function(a,b){return a.distance-b.distance});
+    var vertices=[], cuts=[];
+    appendShardSolid(vertices,cuts,disc,seed,planes,TH);
+    var discLength=vertices.length/3;
+    appendShardSolid(vertices,cuts,hub,seed,planes,g.hub.scale.y);
+    var hubLength=vertices.length/3-discLength;
+    if(!vertices.length) return;
+    var geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
+    geo.setAttribute('shardCut',new THREE.Float32BufferAttribute(cuts,1)); geo.computeVertexNormals();
+    var dx=cos*seed.x-sin*seed.y, dz=-sin*seed.x-cos*seed.y;
+    var radial=Math.hypot(dx,dz)/r, bearing=Math.atan2(dz,dx);
+    var disperse=(6+r*(2.2+3.4*severity))*(.38+.62*radial)*(.76+.48*Math.random());
+    var vx=disperse*(Math.cos(bearing)+direction*radial*1.4*Math.sin(bearing));
+    var vz=disperse*(Math.sin(bearing)-direction*radial*1.4*Math.cos(bearing));
+    var f=addFrag(geo,g,pos.x+dx,pos.y,pos.z+dz,vx,12+Math.random()*(13+25*severity),vz,1,1,1,rotation);
+    f.own=true; f.h=.11; f.m.castShadow=true; f.m.receiveShadow=true;
+    f.mat.roughnessMap=null; f.mat.color.copy(g.base); f.mat.onBeforeCompile=shadeShard;
+    f.release=.04+(1-radial)*(.16-.08*severity)+Math.random()*.035;
+    f.coolTime=4+9*(1-severity)+3*(1-radial);
+    f.w.multiplyScalar(.22+.20*severity);
+    f.w.y=-direction*(3+8*severity)*(.45+.55*radial);
+    var discT=THREE.MathUtils.lerp(g.Thub,g.Tdisc,sstep(.12,.61,radial));
+    f.T0=f.T=THREE.MathUtils.lerp(discT,g.T,sstep(.60,.95,radial));
+    glowAt(f.T,f.mat.emissive);
+    if(hubLength){
+      var hubMat=g.hubMat.clone(); hubMat.onBeforeCompile=shadeShard;
+      f.hub={mat:hubMat,T0:g.Thub,T:g.Thub}; glowAt(g.Thub,hubMat.emissive);
+      geo.addGroup(0,discLength,0); geo.addGroup(discLength,hubLength,1); f.m.material=[f.mat,hubMat];
+    }
+  });
+  var heat=sstep(950,5000,g.T);
+  if(heat>0) sparkBurst(pos.x,pos.y+TH/2,pos.z,Math.round(heat*(10+18*severity)),38+75*severity,g.T);
+  hardFlash=.07+heat*.14;
+  if(!matchMedia('(prefers-reduced-motion: reduce)').matches) hardShake=camera.position.distanceTo(controls.target)*(.003+.004*severity);
+}
 function burstGear(g){
   hardStat.burst++;
+  if(careerMode){shatterCareerGear(g); sndHit('boom'); return}
   var pieces=3+Math.floor(Math.random()*3), cuts=[], i, a0=Math.random()*TAU2;
   for(i=0;i<pieces;i++) cuts.push(a0+i*TAU2/pieces+(Math.random()-0.5)*TAU2/pieces*0.6);
-  var Ro=g.r+M, w=g.omega, sgn=w>=0?1:-1, pos=g.grp3.position, y=pos.y, rotation=career?career.angle(g):g.angle;
+  var Ro=g.r+M, w=g.omega, sgn=w>=0?1:-1, pos=g.grp3.position, y=pos.y, rotation=g.angle;
   for(i=0;i<pieces;i++){
     var A=cuts[i], B=(i+1<pieces?cuts[i+1]:cuts[0]+TAU2), sh=new THREE.Shape();
-    if(careerMode){
-      var toothPitch=TAU2/g.n, root=rootR(g.n), split=g.r*.31;
-      var segments=Math.ceil((B-A)/toothPitch*15);
-      sh.moveTo(split*Math.cos(A),split*Math.sin(A));
-      for(var j=0;j<=segments;j++){
-        var theta=A+(B-A)*j/segments, phase=theta/toothPitch;
-        var radius=root+(Ro-root)*(1-sstep(.14,.36,Math.abs(phase-Math.round(phase))));
-        sh.lineTo(radius*Math.cos(theta),radius*Math.sin(theta));
-      }
-      sh.lineTo(split*Math.cos(B),split*Math.sin(B));
-      sh.lineTo(split*.48*Math.cos((A+B)/2),split*.48*Math.sin((A+B)/2));
-      sh.closePath();
-    }else{
-      sh.moveTo(0,0); sh.lineTo(Ro*Math.cos(A),Ro*Math.sin(A)); sh.absarc(0,0,Ro,A,B,false); sh.lineTo(0,0);
-    }
+    sh.moveTo(0,0); sh.lineTo(Ro*Math.cos(A),Ro*Math.sin(A)); sh.absarc(0,0,Ro,A,B,false); sh.lineTo(0,0);
     var geo=new THREE.ExtrudeGeometry(sh,{depth:TH,bevelEnabled:false,curveSegments:8}); geo.rotateX(-Math.PI/2);
     var am=rotation+(A+B)/2, cr=Math.cos(am), sr=-Math.sin(am), tx=-Math.sin(am)*sgn, tz=-Math.cos(am)*sgn;
-    var vt=careerMode?40+Math.random()*65:Math.min(2600,Math.abs(w)*Ro*0.6), vr=vt*0.35;
-    var f=addFrag(geo,g,pos.x,y,pos.z,tx*vt+cr*vr,careerMode?25+Math.random()*60:150+Math.random()*450,tz*vt+sr*vr,1,1,1,rotation); f.own=true; f.h=0.4;
+    var vt=Math.min(2600,Math.abs(w)*Ro*0.6), vr=vt*0.35;
+    var f=addFrag(geo,g,pos.x,y,pos.z,tx*vt+cr*vr,150+Math.random()*450,tz*vt+sr*vr,1,1,1,rotation); f.own=true; f.h=0.4;
     f.w.y=Math.max(-60,Math.min(60,w*0.3));
   }
-  sparkBurst(pos.x,y+TH/2,pos.z,careerMode?46:90,careerMode?105:900,Math.max(g.T,1800));
-  hardFlash=careerMode?.32:1; hardShake=Math.max(hardShake,camera.position.distanceTo(controls.target)*(careerMode?.012:.03));
+  sparkBurst(pos.x,y+TH/2,pos.z,90,900,Math.max(g.T,1800));
+  hardFlash=1; hardShake=Math.max(hardShake,camera.position.distanceTo(controls.target)*.03);
   sndHit('boom');
-  if(!careerMode) toast(g.n+' 齿齿轮在离心力下炸裂：轮盘环向应力 '+(g.hoop/1e6).toFixed(0)+' MPa 超过了材料强度',true);
+  toast(g.n+' 齿齿轮在离心力下炸裂：轮盘环向应力 '+(g.hoop/1e6).toFixed(0)+' MPa 超过了材料强度',true);
 }
 function meltGear(g){
   hardStat.melt++; spawnPool(g); sparkBurst(g.x,lY(g.layer)+TH/2,g.z,40,200,g.mt.Tm); sndHit('hiss');
@@ -2085,7 +2207,10 @@ if(careerMode){
     breakGear:function(g,animate){
       if(!g || careerBroken) return;
       careerBroken=true;
-      if(animate) burstGear(g);
+      if(animate){
+        if(!matchMedia('(prefers-reduced-motion: reduce)').matches) this.fit(g);
+        burstGear(g);
+      }
       g.grp3.visible=false;
       comps.forEach(function(c){c.w=0});
       G.forEach(function(gear){gear.omega=0});
@@ -2138,12 +2263,12 @@ if(careerMode){
     fit:function(terminal){
       var first=G[0], end=careerGears[careerGears.length-1]; if(!first||!end) return;
       var bounds=new THREE.Box3(), corner=new THREE.Vector3();
-      var focus=terminal===true;
-      (focus?[end]:G).forEach(function(g){
-        var r=g.r+M, y=lY(g.layer)+TH+(g.install?g.install.lift:0);
+      var focus=terminal===true?end:terminal;
+      (focus?[focus]:G).forEach(function(g){
+        var r=g.r+M, pos=g.grp3.position, y=pos.y+TH;
         if(focus){r*=2.5; y+=1.5}
-        bounds.expandByPoint(corner.set(g.x-r,focus?lY(g.layer)-.25:0,g.z-r));
-        bounds.expandByPoint(corner.set(g.x+r,y,g.z+r));
+        bounds.expandByPoint(corner.set(pos.x-r,focus?pos.y-.25:0,pos.z-r));
+        bounds.expandByPoint(corner.set(pos.x+r,y,pos.z+r));
       });
       if(!focus) bounds.expandByPoint(corner.set(first.x,lY(first.layer)+TH+2,first.z+first.r+1));
       var aim=bounds.getCenter(new THREE.Vector3());
