@@ -60,8 +60,6 @@
   };
   const icon = name => `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;
   const tool = (id,name,label) => `<button type="button" id="${id}" aria-label="${label}" title="${label}">${icon(name)}</button>`;
-  const mode = new URLSearchParams(location.search);
-  const test = mode.has('test');
   const key = 'gear-lab-incremental.v1';
   const $ = id => document.getElementById(id);
   const nf = new Intl.NumberFormat('zh-CN', {maximumFractionDigits: 1});
@@ -94,16 +92,13 @@
     : earlyCalibrationCost(calibrationKnee)*latePrice(n,calibrationKnee,1.037));
 
   function initialState() {
-    const initial = { curve:5, pointScale, count:2, running:null, ratio:0, motor:0, material:0, active:0, balance:0,
+    return { curve:5, pointScale, count:2, running:null, ratio:0, motor:0, material:0, active:0, balance:0,
       calibration:0, chamber:0, bearing:0, sample:0, record:firstRecord, outputFloor:0,
-      research:researchLab.profile(null,test?4:0), guarded:true, peakRim:0, fracture:null };
-    if (test) return { ...initial, count:maxStages, ratio:15, motor:40, material:4, active:1, balance:pointScale*10000 };
-    return initial;
+      research:researchLab.profile(null), guarded:true, peakRim:0, fracture:null };
   }
 
   function load(recordCount) {
     const initial = initialState();
-    if (test) return initial;
     try {
       const data = JSON.parse(localStorage.getItem(key));
       if (data && (data.curve ?? 0) < 2) {
@@ -222,15 +217,14 @@
         <span class="lab-mark">${icon('brand')}</span>
         <div class="lab-brand"><span>SINGULARITY DRIVE</span><h1>奇点传动</h1></div>
         <div class="lab-header-actions">
-          <button type="button" id="labReset" title="重置${test?'试车':'实验'}" aria-label="重置${test?'试车':'实验'}">${icon('reset')}<span>重置</span></button>
-          ${test ? '<a class="lab-switch" href="index.html">正式实验</a>' : ''}
+          <button type="button" id="labReset" title="重置实验" aria-label="重置实验">${icon('reset')}<span>重置</span></button>
           <button type="button" class="lab-switch" id="labResearchOpen" aria-expanded="false">材料研究</button>
         </div>
       </header>
       <div class="lab-layout" id="labRunView">
         <section class="lab-bench" aria-labelledby="labBenchTitle">
           <div class="lab-hero">
-            <div class="lab-bench-head"><h2 id="labBenchTitle">传动台 <span>${test ? '八级试车' : '正式实验'}</span></h2><span class="lab-status" id="labStatus">运转中</span></div>
+            <div class="lab-bench-head"><h2 id="labBenchTitle">传动台 <span>正式实验</span></h2><span class="lab-status" id="labStatus">运转中</span></div>
             <div class="lab-economy"><div><span>实验点</span><b id="labBalance"></b></div><div><span>每秒产出</span><b id="labRate"></b></div></div>
             <div class="lab-light" id="labLightGoal">
               <div><strong id="labLightTitle">终局目标 · 触及光速</strong><span id="labLightLive"></span></div>
@@ -288,7 +282,6 @@
               <button type="button" class="lab-buy" aria-label="升级${title}" aria-describedby="labEffect-${name}"></button>
               ${name==='calibration'?'<button type="button" id="labCalibrationBatch" class="lab-batch" hidden></button>':''}
             </article>`).join('')}</section>`).join('')}
-          ${test ? '<p class="lab-test-note">试车进度不写入正式存档</p>' : ''}
         </section>
       </div>
       <section class="lab-research" id="labResearchView" aria-labelledby="labResearchTitle" hidden>
@@ -313,8 +306,8 @@
       </section>
       <dialog id="labResetDialog" aria-labelledby="labResetTitle" aria-describedby="labResetDescription">
         <form method="dialog">
-          <h2 id="labResetTitle">重置${test?'试车':'实验'}？</h2>
-          <p id="labResetDescription">将清除当前${test?'试车':'正式实验'}的点数、升级和转速纪录，${test?'恢复试车预设':'从两级齿轮重新开始，保留材料许可和永久研究'}。</p>
+          <h2 id="labResetTitle">重置实验？</h2>
+          <p id="labResetDescription">将清除本轮的点数、升级和转速纪录，从两级尼龙齿轮重新开始，保留研究点、材料许可和永久研究。</p>
           <div class="lab-dialog-actions"><button value="cancel" autofocus>取消</button><button class="lab-danger" value="reset">确认重置</button></div>
         </form>
       </dialog>`;
@@ -464,7 +457,7 @@
     function drawRecord(endSpeed) {
       const next = records[state.record];
       const complete = !next;
-      text(stat.LightTitle,complete ? (test?'试车成功 · 触及光速':'实验完成 · 已达光速') : '终局目标 · 八级冲击光速');
+      text(stat.LightTitle,complete ? '实验完成 · 已达光速' : '终局目标 · 八级冲击光速');
       text(stat.LightLive,`当前 ${lightPercent(endSpeed/lightRpm)} 光速`);
       stat.LightGoal.classList.toggle('is-complete',complete);
       stat.LightProgress.value = Math.min(1,bestRpm/lightRpm);
@@ -522,7 +515,7 @@
 
     function save() {
       settleOutput();
-      if (test || !storage) return;
+      if (!storage) return;
       const safe = {...state,guarded:true};
       const offlineRate = state.guarded ? steadyOutput : outputAt(Math.min(unrestricted,protectionRpm(safe)),safe);
       try { localStorage.setItem(key, JSON.stringify({ ...state, rate:paused || state.fracture ? 0 : offlineRate, bestRpm, at:Date.now() })); }
@@ -766,7 +759,7 @@
     resetDialog.addEventListener('close', () => {
       if (resetDialog.returnValue !== 'reset') return;
       beginRun({...initialState(),research:state.research});
-      note(test?'已恢复试车预设':'已重置实验');
+      note('已重置实验');
     });
 
     function beginRun(next) {
@@ -818,7 +811,7 @@
             state.balance+=reward;
             const latest = records[state.record-1];
             if (latest[2]===1) { state.research.clear = true; api.lightPulse(); }
-            note(latest[2]===1 ? `${test?'试车成功':'实验完成'} · 末轮达到光速 · +${fmt(reward)} 点`
+            note(latest[2]===1 ? `实验完成 · 末轮达到光速 · +${fmt(reward)} 点`
               : `${latest[2]?'光速里程碑':'转速纪录'} · ${recordName(latest)} · +${fmt(reward)} 点`);
             save();
           }

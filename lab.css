@@ -109,7 +109,6 @@ body { margin:0; }
 .lab-batch { grid-column:2/-1; margin-top:2px; }
 :is(.lab-fastest,.lab-batch):enabled:hover { background:#cfe0d4; }
 .lab-batch:disabled { color:#52635a; background:#e8ede9; border-color:#d1dbd4; }
-.lab-test-note { color:var(--lab-muted); font-size:11px; }
 @media (max-width:760px) {
   .career { overflow:auto; overscroll-behavior:none; }
   #progression { height:auto; }
@@ -184,8 +183,4 @@ body { margin:0; }
   .lab-stress { gap:5px 8px; }
   .lab-bench-head { flex-wrap:wrap; }
   .lab-material select { max-width:68%; }
-}
-@media (max-width:410px) {
-  .lab-header:has(a.lab-switch) { flex-wrap:wrap; }
-  .lab-header:has(a.lab-switch) .lab-header-actions { margin-left:0; }
 }
