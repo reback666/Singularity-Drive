@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#e9eee8">
+<title>奇点传动</title>
+<meta name="description" content="齿轮传动与增量升级实验台">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+/* Layout: full-screen 3D bench; HUD card and actions float at top, tool dock sits at bottom. Single dark workshop look (graphite + brass). */
+:root{
+  --bg:#12161a; --panel:#1b2127; --panel2:#262f37; --line:#36424c;
+  --fg:#ece7da; --dim:#9aa6ae; --brass:#d9a441;
+  --l1:#d19a43; --l2:#4fb0b0; --l3:#d1647a;
+  --ok:#86c46d; --bad:#ea5a4f;
+  --font:system-ui,-apple-system,'PingFang SC','Noto Sans SC','Microsoft YaHei','Noto Sans SC','Microsoft YaHei',sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;position:relative;overflow:hidden;-webkit-user-select:none;user-select:none;touch-action:none}
+#stage{position:absolute;inset:0}
+#stage canvas{display:block;width:100%;height:100%;touch-action:none}
+button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:7px 11px;cursor:pointer;min-height:36px}
+button:active{background:#323d47}
+button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
+input[type=number]{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:86px;text-align:center;min-height:36px;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--brass);min-height:28px}
+
+#top{position:absolute;left:0;right:0;top:0;padding:8px max(16px,env(safe-area-inset-left,0px)) 0 max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:6px;pointer-events:none}
+#top>*{pointer-events:auto}
+.card{background:rgba(27,33,39,.92);border:1px solid var(--line);border-radius:8px;padding:8px 11px;min-width:0}
+#hud .r1{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#bar{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;background:rgba(27,33,39,.78)}
+.ttl{font-weight:700;font-size:15px;letter-spacing:.05em;white-space:nowrap}
+.sum{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dim);font-size:12.5px;font-variant-numeric:tabular-nums}
+#bar button{padding:3px 9px;min-height:30px;white-space:nowrap}
+#hud{background:rgba(27,33,39,.8)}
+#hud .cnt{color:var(--dim);font-variant-numeric:tabular-nums;font-size:13px}
+#sel{margin-top:4px;font-size:13px;line-height:1.45;color:var(--fg);min-height:19px;font-variant-numeric:tabular-nums}
+#sel .dim{color:var(--dim)}
+#sel .bad{color:var(--bad)}
+.ebar{height:6px;background:var(--bg);border-radius:3px;overflow:hidden;margin-top:6px}
+.ebar i{display:block;height:100%;width:0;background:var(--ok);transition:background .3s}
+#etxt{font-size:12px;color:var(--dim);margin-top:3px;font-variant-numeric:tabular-nums}
+#acts{display:flex;flex-direction:column;gap:7px;padding:8px 10px;background:rgba(27,33,39,.92);max-height:58vh;overflow:auto}
+#acts[hidden],#gFx[hidden],#bChart[hidden]{display:none}
+#acts .grp{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#acts .grp>i{font-style:normal;color:var(--dim);font-size:12px;width:30px;flex:none}
+#acts button{padding:3px 9px;min-height:32px;font-size:13px;background:rgba(38,47,55,.9)}
+#acts button.tg::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:#55616b;margin-right:6px;vertical-align:middle}
+#acts button.tg.on{border-color:var(--brass)}
+#acts button.tg.on::before{background:var(--brass);box-shadow:0 0 6px var(--brass)}
+#acts #bHard.on{background:#5a1d19;border-color:var(--bad)}
+#acts #bHard.on::before{background:var(--bad);box-shadow:0 0 6px var(--bad)}
+
+#toast{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--dockh,150px) + 10px);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 12px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:calc(100% - 32px);text-align:center}
+#toast.on{opacity:1}
+#toast.bad{border-color:var(--bad);color:#ffd5d0}
+
+#dock{position:absolute;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);border-radius:12px 12px 0 0;padding:10px max(16px,env(safe-area-inset-left,0px)) 8px;padding-right:max(16px,env(safe-area-inset-right,0px))}
+.sheet{display:none;flex-direction:column;gap:8px;margin-bottom:10px}
+.sheet.on{display:flex}
+.sheet .line{display:flex;align-items:center;gap:8px}
+.sheet .line label{color:var(--dim);margin-right:auto;font-size:13px}
+.sheet p{margin:0;color:var(--dim);font-size:13px;line-height:1.5}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{padding:3px 9px;min-height:30px;font-variant-numeric:tabular-nums}
+.seg{display:flex;gap:6px}
+.seg button{flex:1;border-top-width:3px}
+.seg button[data-l="0"]{border-top-color:var(--l1)}
+.seg button[data-l="1"]{border-top-color:var(--l2)}
+.seg button[data-l="2"]{border-top-color:var(--l3)}
+.seg button.on{background:#3a4650;border-color:var(--brass)}
+#tools{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+#tools button{font-weight:600;letter-spacing:.04em;padding:9px 4px}
+#tools button.on{background:var(--brass);color:#1b1608;border-color:var(--brass)}
+
+#settings{position:absolute;inset:0;background:rgba(10,13,16,.6);display:none;align-items:flex-end}
+#settings.on{display:flex}
+#settings .box{width:100%;background:var(--panel);border-top:1px solid var(--line);border-radius:12px 12px 0 0;padding:14px max(16px,env(safe-area-inset-left,0px)) 18px;padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:10px;max-height:80%;overflow:auto}
+#settings h3{margin:0;font-size:16px;letter-spacing:.05em}
+#settings .f{display:flex;flex-direction:column;gap:2px}
+#settings .f .h{display:flex;justify-content:space-between;color:var(--dim);font-size:13px}
+#settings .f .h b{color:var(--fg);font-variant-numeric:tabular-nums}
+#settings .f input[type=number]{width:100%;text-align:right}
+#settings input[type=text]{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-height:36px;box-sizing:border-box;font-variant-numeric:tabular-nums}
+#settings .chips button.on{border-color:var(--brass);background:#3a4650}
+#settings textarea{font:inherit;font-size:12px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;box-sizing:border-box;resize:vertical;user-select:text;-webkit-user-select:text}
+#settings .chk{display:flex;align-items:center;gap:5px;color:var(--fg);cursor:pointer}
+#settings .chk input{width:18px;height:18px;accent-color:var(--brass)}
+select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-height:34px}
+input[type=color]{width:44px;height:34px;padding:2px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+#sh-place{max-height:40vh;overflow:auto}
+.sw{width:34px;min-height:34px;height:34px;padding:0;border-radius:50%;border:2px solid var(--line)}
+#settings p{margin:0;color:var(--dim);font-size:12.5px;line-height:1.55}
+
+html,body{margin:0;padding:0;width:100%;height:100%}
+[hidden]{display:none!important}
+#help{position:absolute;inset:0;z-index:30;background:rgba(10,13,16,.72);display:flex;align-items:center;justify-content:center;padding:16px max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));touch-action:auto}
+#help .box{width:100%;max-width:460px;max-height:86%;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;-webkit-user-select:text;user-select:text}
+#help h2{margin:0;font-size:18px;letter-spacing:.05em}
+#help ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;color:var(--fg);font-size:14px;line-height:1.55}
+#help li b{color:var(--brass);font-weight:600}
+#help p{margin:0;color:var(--dim);font-size:12.5px;line-height:1.55}
+#help button{background:var(--brass);color:#1b1608;border-color:var(--brass);font-weight:700}
+#loadmsg{position:absolute;inset:0;z-index:40;background:var(--bg);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--dim);line-height:1.7}
+</style>
+  <link rel="stylesheet" href="lab.css">
+</head>
+<body>
+
+<div id="stage"></div>
+<main id="progression" hidden></main>
+
+<div id="top" hidden>
+  <div class="card" id="bar">
+    <span class="ttl">齿轮实验室</span>
+    <span class="sum" id="sum"></span>
+    <button id="bPause">暂停</button>
+    <button id="bDet">详情</button>
+    <button id="bMenu">菜单</button>
+  </div>
+  <div class="card" id="hud" hidden>
+    <div class="r1"><span class="cnt" id="cnt"></span></div>
+    <div id="sel"></div>
+    <div class="ebar"><i id="ebar"></i></div>
+    <div id="etxt"></div>
+  </div>
+  <div class="card" id="acts" hidden>
+    <div class="grp"><i>操作</i>
+      <button id="bCharge">补能源·降温·修复</button>
+      <button id="bHelp">玩法</button>
+    <button id="bFit">适应视图</button>
+      <button id="bUndo">撤销</button>
+      <button id="bSet">马达参数</button>
+      <button id="bClear">清空</button>
+    </div>
+    <div class="grp"><i>模式</i>
+      <button id="bInf" class="tg">无限</button>
+      <button id="bHard" class="tg">硬核模式</button>
+      <button id="bHeat" class="tg">温度颜色</button>
+      <button id="bFx" class="tg">时空特效</button>
+    </div>
+    <div class="grp" id="gFx"><i>特效</i>
+      <button id="bBH" class="tg">黑洞坍缩</button>
+      <button id="bBB" class="tg">宇宙大爆炸</button>
+    </div>
+    <div class="grp"><i>显示</i>
+      <button id="bChart">色温：黑体</button>
+      <button id="bQ">画质：中</button>
+      <button id="bSnd" class="tg">音效</button>
+      <button id="bBgm" class="tg">音乐</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="warn" style="position:absolute;inset:0;z-index:20;background:rgba(10,13,16,.7);display:none;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--panel);border:1px solid var(--bad);border-radius:10px;padding:16px;max-width:420px;width:100%;display:flex;flex-direction:column;gap:10px">
+    <b style="font-size:16px;color:var(--bad)">安全提示：超大齿轮可能卡顿</b>
+    <p id="warnTxt" style="margin:0;color:var(--fg);font-size:14px;line-height:1.6"></p>
+    <div style="display:flex;gap:8px"><button id="warnNo" style="flex:1">取消</button><button id="warnYes" style="flex:1;border-color:var(--bad)">仍然放置</button></div>
+  </div>
+</div>
+
+<div id="dock" hidden>
+  <div class="sheet on" id="sh-place">
+    <div class="line"><label>齿数（1~10000）</label><button id="tm" aria-label="减一">−</button><input id="tn" type="number" min="1" max="10000" step="1" value="20" inputmode="numeric"><button id="tp" aria-label="加一">+</button></div>
+    <input id="tr" type="range" min="0" max="1000" step="1" value="325" aria-label="齿数滑块">
+    <div class="chips" id="chips"></div>
+    <div class="line"><label>材质</label><select id="mtSel"></select></div>
+    <div class="line"><label>颜色</label><input type="color" id="cSel" value="#9ea6ad" aria-label="取色器"><input type="text" id="cHex" maxlength="7" placeholder="#RRGGBB" style="width:84px;text-align:center"><button id="cAll">应用</button><button id="cDef">默认</button></div>
+    <div class="line"><label>放置层数（无上限）</label><button id="lm" aria-label="下一层">−</button><input id="ln" type="number" min="1" step="1" value="1" inputmode="numeric"><button id="lp" aria-label="上一层">+</button></div>
+    <p style="font-size:12px">点地面放置 · 靠近同层自动啮合 · 放在别层圆心上共轴 · 双指缩放</p>
+  </div>
+  <div class="sheet" id="sh-motor"><p>点击任意齿轮，给它装上或拆下马达。马达靠能源驱动，能源耗尽后动力逐渐减弱，齿轮靠惯性慢慢停下。</p></div>
+  <div class="sheet" id="sh-del"><p>点击齿轮将其拆除。拆除后相连的齿轮会按动量守恒重新分配转速。</p></div>
+  <div class="sheet" id="sh-sel"><p>点击齿轮查看齿数、转速、线速度和传动状态。</p></div>
+  <nav id="tools">
+    <button data-t="place" class="on">放置</button>
+    <button data-t="motor">马达</button>
+    <button data-t="del">拆除</button>
+    <button data-t="sel">查看</button>
+  </nav>
+</div>
+
+<div id="settings">
+  <div class="box">
+    <h3>马达参数</h3>
+    <div class="f"><div class="h"><span>堵转扭矩（N·m，无上限）</span><label class="chk"><input type="checkbox" id="rInf">无限</label></div><input id="rTau" type="text" value="1" inputmode="decimal" autocomplete="off" style="text-align:right;width:100%"></div>
+    <div class="f"><div class="h"><span>空载转速（rpm，可超过双精度上限，如 1e500）</span></div><input id="rRpm" type="text" value="120" inputmode="decimal" autocomplete="off" style="text-align:right;width:100%"></div>
+    <div class="f"><div class="h"><span>转速倍率</span><span id="mulTxt"></span></div><div class="chips" id="mulChips"></div></div>
+    <div class="f"><div class="h"><span>有效空载转速</span><b id="effRpm"></b></div></div>
+    <div class="f"><div class="h"><span>空间扭曲封顶（光速的几倍，0 = 不封顶）</span></div><input id="rCapB" type="text" value="0" inputmode="decimal" autocomplete="off" style="text-align:right;width:100%"></div>
+    <div class="f"><div class="h"><span>温度封顶（K，0 = 不封顶）</span></div><input id="rCapT" type="text" value="0" inputmode="decimal" autocomplete="off" style="text-align:right;width:100%"></div>
+    <div class="f"><div class="h"><span>亮度封顶（发光倍率，0 = 不封顶）</span></div><input id="rCapG" type="text" value="0" inputmode="decimal" autocomplete="off" style="text-align:right;width:100%"></div>
+    <div class="f"><div class="h"><span>轴承摩擦系数 μ（润滑滑动轴承约 0.05）</span></div><input id="rMu" type="number" min="0" step="any" value="0.05" inputmode="decimal"></div>
+    <div class="f"><div class="h"><span>硬核模式：疲劳加速（倍，1 为真实时间）</span></div><input id="rAcc" type="number" min="1" step="any" value="100" inputmode="decimal"></div>
+    <div class="f"><div class="h"><span>能源容量（J，无上限）</span></div><input id="rCap" type="text" value="300" inputmode="decimal" autocomplete="off" style="text-align:right;width:100%"></div>
+    <p>力学模型：渐开线齿形（压力角 20°）、厚 6 mm、模数 2 mm，质量和转动惯量按真实截面（含减重孔）和所选材质的密度计算。每根轴有库仑摩擦力矩 μ·N·r（N 是该轴上所有齿轮的重力，r 是轴半径），再加润滑油粘滞阻力和齿轮盘的空气阻力。每个啮合传递效率 98%，损失的 2% 变成两个齿轮的摩擦热，相邻齿轮之间还会热传导。传动比折算到马达轴：负载越多、传动链越长，启动所需扭矩越大；扭矩不足时齿轮不动。马达为直流电机特性，能源低于 20% 时扭矩平滑下降，耗尽后齿轮在摩擦下逐渐减速到停止。</p>
+    <div class="f"><div class="h"><span>存档（每 3 秒自动保存在本机浏览器）</span></div>
+      <textarea id="sv" rows="3" placeholder="点“导出存档”生成文本，可复制保存；粘贴到这里再点“读取存档”恢复。"></textarea></div>
+    <div class="acts"><button id="bExp">导出存档</button><button id="bImp">读取存档</button></div>
+    <button id="bClose">完成</button>
+  </div>
+</div>
+
+<div id="help" hidden>
+  <div class="box">
+    <h2>齿轮实验室 · 玩法</h2>
+    <ul>
+      <li><b>放置</b>：选齿数（1~10000，超过 500 会先提示卡顿风险）和层数，点击地面放齿轮。靠近同层齿轮会自动啮合，放在其他层齿轮的圆心上会共轴相连。</li>
+      <li><b>马达</b>：点一个齿轮装上马达，它就带动整组转起来。右上角“菜单”里可以补能源、开“无限”、调马达参数。</li>
+      <li><b>古戈尔齿轮</b>：每一级用小齿轮带大齿轮，小齿轮放到上一层的圆心，层数没有上限，传动比逐级相乘。</li>
+      <li><b>转得太快</b>：会发热发光，颜色按色温变化；边缘速度到光速的 20% 以上，周围空间开始扭曲；超过光速会发生一次大爆炸。</li>
+      <li><b>操作</b>：单指转视角，双指缩放，“适应视图”一键看全。进度每 3 秒自动保存在本机浏览器。</li>
+    </ul>
+    <p>页面已内置全部引擎文件，微信里也能直接玩；若显示不全，点右上角用手机浏览器打开体验更完整。</p>
+    <button id="bHelpOk">开始玩</button>
+  </div>
+</div>
+<div id="loadmsg" role="status">正在加载 3D 引擎…</div>
+
+<script src="lab-renderer.js"></script>
+<script src="lab-research.js"></script>
+<script src="lab-progress.js"></script>
+<script src="lab-physics.js"></script>
+</body>
+</html>
