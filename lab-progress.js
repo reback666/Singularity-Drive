@@ -27,9 +27,9 @@
     if (part > 0 && part < .00001) return '< 0.001%';
     return lightPrecision.format(part < 1 ? Math.min(99.999,part*100) : part*100)+'%';
   }
-  const stagePrices = [0,0,18,25,38,54,74,102,142,196,265,370,525,720,980,1360].map((price,n)=>price*latePrice(n,7,1.27));
+  const legacyStagePrices = [0,0,18,25,38,54,74,102,142,196,265,370,525,720,980,1360].map((price,n)=>price*latePrice(n,7,1.27));
   const costs = {
-    count: stagePrices.slice(0,maxStages),
+    count: [0,0,24,115,650,4600,42000,280000],
     ratio: Array.from({length:maxToothUpgrades}, (_,n) => (9+.4*n+.016*n*n)*latePrice(n,12,1.12)),
     motor: Array.from({length:(motors.length-1)*subdivisions.motor}, (_,n)=>(11+.9*n+.066*n*n)*latePrice(n,16,1.07)),
     material: tiers.slice(1).map(tier=>tier.fee),
@@ -112,7 +112,7 @@
         if (data.material === 3) data.material = 4;
         if (data.active === 3) data.active = 4;
       }
-      const supportedStages = data?.curve>=4 ? maxStages : stagePrices.length;
+      const supportedStages = data?.curve>=4 ? maxStages : legacyStagePrices.length;
       if (!data || !between(data.count, 2, supportedStages) || !between(data.ratio, 0, maxToothUpgrades) ||
           !between(data.motor, 0, costs.motor.length) || !between(data.material, 0, data.curve>=5?tiers.length-1:4) || !between(data.active, 0, data.material) ||
           !Number.isFinite(data.balance) || data.balance < 0) return initial;
@@ -123,7 +123,7 @@
       const conversion = data.pointScale === pointScale ? 1 : pointScale;
       const outputFloor = Number.isFinite(data.outputFloor) && data.outputFloor>0 ? data.outputFloor*conversion : 0;
       const count = Math.min(maxStages,data.count);
-      const refund = stagePrices.slice(count,data.count).reduce((sum,price)=>sum+Math.round(price),0)*pointScale;
+      const refund = legacyStagePrices.slice(count,data.count).reduce((sum,price)=>sum+Math.round(price),0)*pointScale;
       const fracture = data.fracture && between(data.fracture.tier,0,tiers.length-1) &&
         between(data.fracture.stage,1,maxStages) && Number.isFinite(data.fracture.rpm) && Number.isFinite(data.fracture.limit) &&
         Number.isFinite(data.fracture.peak) && between(data.fracture.points,0,1000) ? data.fracture : null;
@@ -348,7 +348,7 @@
     const watts = motor => power(motor) >= 1000 ? `${fmt(power(motor)/1000)} kW` : `${power(motor).toFixed(2)} W`;
     function value(name, next = false) {
       const index = state[name] + Number(next);
-      if (name === 'count') return `${index} 级 · ${index*2} 轮`;
+      if (name === 'count') return `${index} 级`;
       if (name === 'ratio') return `${inputTeeth+index} 齿`;
       if (name === 'motor') return `${index}/${costs.motor.length} 档 · ${watts(calibratedMotor(index,state.calibration))}`;
       if (name === 'calibration') return `${index} 次${calibratedMotor(state.motor,index)[1]===motorRpmLimit?' · 转速封顶':''}`;
